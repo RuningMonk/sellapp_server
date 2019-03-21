@@ -42,12 +42,12 @@ server.use(body_parser.urlencoded({
 //});
 
 server.all('*', function(req, res, next) {
-    res.header("Access-Control-Allow-Origin", "*");
-    res.header("Access-Control-Allow-Headers", "X-Requested-With");
-    res.header("Access-Control-Allow-Methods","PUT,POST,GET,DELETE,OPTIONS");
-    res.header("X-Powered-By",' 3.2.1')
-    res.header("Content-Type", "application/json;charset=utf-8");
-    next();
+	res.header("Access-Control-Allow-Origin", "*");
+	res.header("Access-Control-Allow-Headers", "X-Requested-With");
+	res.header("Access-Control-Allow-Methods", "PUT,POST,GET,DELETE,OPTIONS");
+	res.header("X-Powered-By", ' 3.2.1')
+	res.header("Content-Type", "application/json;charset=utf-8");
+	next();
 });
 
 //启用session
@@ -76,27 +76,40 @@ server.post('/login', function(req, res) {
 	//	console.log(req.session);
 
 	if(req.session.captcha.toLowerCase() == reqdata.captcha.toLowerCase()) {
-		db.query("select username,password,phone,src from user_table where (username='" + reqdata.name + "' || phone='" + reqdata.name + "')", function(err, data) {
-			if(data[0].password == reqdata.pwd) {
-				//把登录状态写入session
-				req.session.login = true;
-				req.session.user = data[0].phone;
+		let sql = "select username,password,phone,src from user_table where (username='" + reqdata.name + "' || phone='" + reqdata.name + "')";
+		db.query(sql, function(err, data) {
+			if(data[0]) {
+				if(data[0].password == reqdata.pwd) {
+					//把登录状态写入session
+					req.session.login = true;
+					req.session.user = data[0].phone;
 
-				res.send({
-					OK: true,
-					msg: '登录成功!',
-					data: data[0]
-				})
+					res.send({
+						OK: true,
+						msg: '登录成功!',
+						data: data[0]
+					})
+				} else {
+					req.session.login = false;
+					delete req.session.user;
+
+					res.send({
+						OK: false,
+						msg: '用户名或密码错误!',
+						data: {}
+					})
+				}
 			} else {
-				req.session.login = false;
+				req.session.Login = false;
 				delete req.session.user;
-
+				
 				res.send({
 					OK: false,
-					msg: '用户名或密码错误!',
+					msg: '该用户不存在',
 					data: {}
 				})
 			}
+
 		})
 	} else {
 		res.send({
@@ -164,12 +177,12 @@ server.get('/storelist', function(req, res) {
 				msg: '数据读取失败'
 			})
 		} else {
-			for(let i in data){
-				if(data[i].Store_tags){
+			for(let i in data) {
+				if(data[i].Store_tags) {
 					data[i].Store_tags = data[i].Store_tags.split(',');
 				}
 			}
-			
+
 			res.send({
 				OK: true,
 				data: data,
@@ -179,16 +192,16 @@ server.get('/storelist', function(req, res) {
 	})
 })
 
-server.post('/shop_info',function(req,res){
+server.post('/shop_info', function(req, res) {
 	const info = req.body;
-	db.query("select * from store_table where ID='" + info.shop_id + "'", function(err,data){
-		if(err){
+	db.query("select * from store_table where ID='" + info.shop_id + "'", function(err, data) {
+		if(err) {
 			res.send({
 				OK: false,
 				data: {},
 				msg: '数据读取失败'
 			})
-		}else{
+		} else {
 			res.send({
 				OK: true,
 				data: data,
@@ -302,30 +315,47 @@ server.get('/search', function(req, res) {
 	}
 })
 
-server.all('/iknow',function(req,res){
-	if(req){
-		let data1 = req.query;
-		let data2 = req.body;
-		console.log("data1:"+data1);
-		console.log("data2:"+data2);
+server.all('/iknow', function(req, res) {
+	if(req) {
+		let pay_data = req.query;
+		db.query("select * from user_table where phone='" + req.session.user + "'",function(err,user_data){
+			user_data = user_data[0];
+			user_data.username = user_data.username?user_data.username:'';
+			let sql = "INSERT INTO comment_table (trade_no,shop_id,name,phone,time,point,food,price) VALUES ('" + pay_data.out_trade_no + "','" + req.session.pay_info.shop_id + "','" + user_data.username + "','" + user_data.phone + "','" + pay_data.timestamp.substr(0,10) + "','0','" + req.session.pay_info.name + "','" + req.session.pay_info.price + "')";
+			db.query(sql,function(err,data){
+				if(err){
+					//把支付信息从session中去除
+					delete req.session.pay_info;
+					//跳转页面
+					res.redirect('http://localhost:8080/#')
+				}else{
+					//把支付信息从session中去除
+					delete req.session.pay_info;
+					//跳转页面
+					res.redirect('http://localhost:8080/#')
+				}
+			})
+		})
 	}
 })
 
 server.post('/pay', function(req, res) {
 	let info = req.body;
 	if(info) {
+		//把支付信息存入session
+		req.session.pay_info = info;
 		const formData = new AlipayFormData();
 		// 调用 setMethod 并传入 get，会返回可以跳转到支付页面的 url
 		formData.setMethod('get');
 
-		formData.addField('notifyUrl', 'http://www.idontknow.com/notify');
-		formData.addField('returnUrl', 'http://localhost:8080/#');
+//		formData.addField('notifyUrl', 'http://localhost:2400/iknow');
+		formData.addField('returnUrl', 'http://localhost:2400/iknow');
 		formData.addField('bizContent', {
-			outTradeNo: info.id,
+			outTradeNo: info.trade_no,
 			productCode: 'FAST_INSTANT_TRADE_PAY',
 			totalAmount: info.price,
 			subject: info.name,
-			body: info.descript,
+			body: info.shop_id,
 		});
 
 		alipaysdk.exec(
@@ -345,21 +375,21 @@ server.post('/pay', function(req, res) {
 server.post('/history', function(req, res) {
 	let user = req.body;
 	if(user) {
-		db.query("select * from history_table where userphone='" + user.userphone + "'", function(err, data) {
-			if(err){
+		db.query("select * from comment_table where phone='" + user.userphone + "'", function(err, data) {
+			if(err) {
 				res.send({
 					OK: false,
 					data: {},
 					msg: '数据读取失败'
 				})
 			} else {
-				for(i in data){
+				for(i in data) {
 					let goods_obj = [];
-					let goods = data[i].goods.split(',');
-					for(let j = 0;j<goods.length;j++){
-						goods_obj.push(goods[j])						
+					let goods = data[i].food.split(',');
+					for(let j = 0; j < goods.length; j++) {
+						goods_obj.push(goods[j])
 					}
-					data[i].goods = goods_obj;
+					data[i].food = goods_obj;
 				}
 				res.send({
 					OK: true,
@@ -371,18 +401,18 @@ server.post('/history', function(req, res) {
 	}
 })
 
-server.post('/manager_login',function(req,res){
+server.post('/manager_login', function(req, res) {
 	const info = req.body;
-	db.query("select * from manager_table where (phone='" + info.user + "' || username='" + info.user + "')",function(err,data){
-		if(err){
+	db.query("select * from manager_table where (phone='" + info.user + "' || username='" + info.user + "')", function(err, data) {
+		if(err) {
 			res.send({
 				Login: false,
 				shop_id: '',
 				msg: '数据库出错'
 			})
-		}else{
-			if(data[0]){
-				if(info.pwd == data[0].password){
+		} else {
+			if(data[0]) {
+				if(info.pwd == data[0].password) {
 					//把登录状态写入session
 					req.session.manager_login = true;
 					req.session.shop_id = data[0].shop_id;
@@ -392,34 +422,34 @@ server.post('/manager_login',function(req,res){
 						shop_id: data[0].shop_id,
 						msg: '登录成功'
 					})
-				}else{
+				} else {
 					res.send({
 						Login: false,
 						shop_id: '',
 						msg: '密码错误'
 					})
 				}
-			}else{
+			} else {
 				res.send({
 					Login: false,
 					shop_id: '',
 					msg: '账号不存在'
 				})
 			}
-			
+
 		}
 	})
 })
 
-server.post('/manager_login_state',function(req,res){
-	if(req.session.manager_login == true){
-		if(req.session.shop_id){
+server.post('/manager_login_state', function(req, res) {
+	if(req.session.manager_login == true) {
+		if(req.session.shop_id) {
 			res.send({
 				Login: true,
 				shop_id: req.session.shop_id,
 				msg: '登录成功'
 			})
-		}else{
+		} else {
 			req.session.manager_login = false;
 			delete req.session.shop_id;
 			res.send({
@@ -428,7 +458,7 @@ server.post('/manager_login_state',function(req,res){
 				msg: '登录状态错误'
 			})
 		}
-	}else{
+	} else {
 		req.session.manager_login = false;
 		delete req.session.shop_id;
 		res.send({
@@ -439,7 +469,7 @@ server.post('/manager_login_state',function(req,res){
 	}
 })
 
-server.get('/manager_quit_login',function(req,res){
+server.get('/manager_quit_login', function(req, res) {
 	req.session.manager_login = false;
 	delete req.session.shop_id;
 	res.send({
@@ -448,22 +478,24 @@ server.get('/manager_quit_login',function(req,res){
 	})
 })
 
-server.post('/manager_update',function(req,res){
+server.post('/manager_update', function(req, res) {
 	const sqldata = req.body;
-//	console.log(sqldata.sql);
-	db.query(sqldata.sql,function(err,data){
-		if(err){
-			res.send({
-				OK:false,
-				msg:'数据库更新失败'
-			})
-		}else{
-			res.send({
-				OK:true,
-				msg:'数据库更新成功'
-			})
-		}
-	})
+	//	console.log(sqldata.sql);
+	if(sqldata.sql){
+		db.query(sqldata.sql, function(err, data) {
+			if(err) {
+				res.send({
+					OK: false,
+					msg: '数据库更新失败'
+				})
+			} else {
+				res.send({
+					OK: true,
+					msg: '数据库更新成功'
+				})
+			}
+		})
+	}
 })
 
 server.use(express_static('./www'));
